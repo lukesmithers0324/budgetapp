@@ -1,0 +1,13 @@
+# Copy to config.toml, then: chmod 600 config.toml
+[app]
+db_path = "budget.db"
+sync_stale_hours = 12
+
+[simplefin]
+access_url = ""  # secret: never paste this anywhere except this file
+
+[plaid]
+client_id = ""
+secret = ""        # secret: Plaid dashboard > API keys. Never paste it in chat
+env = "production" # the free Trial plan uses production
+redirect_uri = "https://localhost:8000/"  # must be https and registered in the Plaid dashboard

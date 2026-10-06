@@ -1,0 +1,6 @@
+config.toml
+*.db
+.venv/
+__pycache__/
+plaid_items.json
+*.pem
