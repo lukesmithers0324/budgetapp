@@ -1,14 +1,32 @@
 import datetime as dt
 
 from fastapi import FastAPI
+from fastapi.responses import Response
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import db, sync
+from . import db, security, sync
 from .connectors.simplefin import SimpleFIN
 
 cfg = sync.load_config()
 conn = db.connect(cfg["app"]["db_path"])
 app = FastAPI(title="Budget")
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost"])
+
+
+@app.middleware("http")
+async def gate(request, call_next):
+    """Everything needs the local passphrase; repeated failures lock out with growing delays."""
+    who = request.client.host if request.client else "?"
+    if security.locked(who):
+        return Response("Too many attempts. Try again later.", status_code=429)
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Basic ") and security.verify_header(auth):
+        security.record(who, True)
+        return await call_next(request)
+    if auth:
+        security.record(who, False)
+    return Response("Login required", status_code=401, headers={"WWW-Authenticate": 'Basic realm="Budget"'})
 
 
 def _month(m):
@@ -100,12 +118,12 @@ class Exchange(BaseModel):
 
 @app.get("/api/plaid/link-token")
 def plaid_link_token():
-    return {"link_token": Plaid(cfg["plaid"]).link_token()}
+    return {"link_token": Plaid(cfg.get("plaid", {})).link_token()}
 
 
 @app.post("/api/plaid/exchange")
 def plaid_exchange(e: Exchange):
-    Plaid(cfg["plaid"]).add_item(e.public_token, e.institution)
+    Plaid(cfg.get("plaid", {})).add_item(e.public_token, e.institution)
     return {"ok": True}
 
 

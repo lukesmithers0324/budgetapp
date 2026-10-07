@@ -68,8 +68,8 @@ def connectors(cfg):
     out = []
     if cfg.get("simplefin", {}).get("access_url"):
         out.append(SimpleFIN(cfg["simplefin"]["access_url"]))
-    if cfg.get("plaid", {}).get("client_id") and has_items():
-        out.append(Plaid(cfg["plaid"]))
+    if has_items():
+        out.append(Plaid(cfg.get("plaid", {})))
     return out
 
 

@@ -4,3 +4,5 @@ config.toml
 __pycache__/
 plaid_items.json
 *.pem
+auth.json
+plaid_items.enc

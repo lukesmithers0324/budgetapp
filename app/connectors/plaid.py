@@ -5,24 +5,30 @@ from decimal import Decimal
 
 import httpx
 
+from .. import security
 from .base import Connector, RawAccount, RawTxn
 
 HOSTS = {"production": "https://production.plaid.com", "sandbox": "https://sandbox.plaid.com"}
-ITEMS_FILE = "plaid_items.json"  # holds access tokens: chmod 600, gitignored, never share
+ITEMS_FILE = "plaid_items.enc"  # access tokens, encrypted at rest; the key lives in the OS keychain
+
+
+def _fernet():
+    from cryptography.fernet import Fernet
+    return Fernet(security.token_key().encode())
 
 
 def _load():
     try:
-        with open(ITEMS_FILE) as f:
-            return json.load(f)
+        with open(ITEMS_FILE, "rb") as f:
+            return json.loads(_fernet().decrypt(f.read()))
     except FileNotFoundError:
         return []
 
 
 def _save(items):
     fd = os.open(ITEMS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(items, f)
+    with os.fdopen(fd, "wb") as f:
+        f.write(_fernet().encrypt(json.dumps(items).encode()))
 
 
 def has_items():
@@ -33,7 +39,8 @@ class Plaid(Connector):
     name = "plaid"
 
     def __init__(self, cfg):
-        self.cfg = cfg
+        self.cfg = {**cfg, "client_id": security.get_secret("PLAID_CLIENT_ID", cfg.get("client_id", "")),
+                    "secret": security.get_secret("PLAID_SECRET", cfg.get("secret", ""))}
         self.base = HOSTS[cfg.get("env", "production")]
         self.removed, self._cursors = [], {}
 
