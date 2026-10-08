@@ -36,7 +36,8 @@ The access URL is a secret: keep it only in config.toml, never in chat, issues, 
 The Trial plan allows 10 connections and removing one does not free its slot, so avoid reconnecting the same bank repeatedly.
 
 ## Security notes
-- Set the login passphrase once: `python -m app.security` (username `budget`, 12+ characters). Without it every request is refused.
+- Set up your login once: `python -m app.security` (12+ character passphrase). It prints a key for an authenticator app, and every login needs the passphrase plus the 6-digit code. Without it every request is refused.
+- To run independent instances (one per person), give each its own `BUDGET_HOME` folder, port, passphrase, and token key. Each folder holds its own config, database, login, and encrypted tokens.
 - Plaid keys: put them in the environment (`PLAID_CLIENT_ID`, `PLAID_SECRET`) or the OS keychain (service `budget`) instead of config.toml. Config values are only a fallback.
 - Access tokens are encrypted at rest (`plaid_items.enc`); the key is created in the OS keychain.
 - The server only answers to the host name `localhost` over HTTPS and locks out repeated bad logins.

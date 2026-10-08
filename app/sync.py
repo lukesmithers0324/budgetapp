@@ -3,13 +3,14 @@ import json
 import re
 import tomllib
 
-from . import db, rules
+from . import db, rules, security
 from .connectors.plaid import Plaid, has_items
 from .connectors.simplefin import SimpleFIN
 
 
 def load_config(path="config.toml"):
-    with open(path, "rb") as f:
+    p = security.home() / path
+    with open(p if p.exists() else path, "rb") as f:
         return tomllib.load(f)
 
 
@@ -87,5 +88,5 @@ def run_all(conn, cfg):
 
 if __name__ == "__main__":
     cfg = load_config()
-    conn = db.connect(cfg["app"]["db_path"])
+    conn = db.connect(str(security.home() / cfg["app"]["db_path"]))
     print("new transactions:", run_all(conn, cfg))

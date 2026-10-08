@@ -1,62 +1,97 @@
-"""Local-app hardening: passphrase gate with lockout, secrets from env/keychain, token key."""
+"""Local-app hardening: login (passphrase + TOTP), sessions, persistent lockout, secrets, token key."""
 import base64
 import getpass
 import hashlib
 import hmac
 import json
 import os
+import secrets
+import struct
 import sys
 import time
+from pathlib import Path
 
-AUTH_FILE = "auth.json"  # scrypt hash + salt only (chmod 600, gitignored)
-_fails = {}  # client -> (failure count, locked until)
-_good = set()  # sha256 of Authorization headers already verified this process
+SESSION_IDLE, SESSION_MAX = 30 * 60, 12 * 3600
+_sessions = {}  # token -> {"created": t, "seen": t}
+
+
+def home():
+    """Per-instance data folder (mode 0700). Set BUDGET_HOME to run independent instances side by side."""
+    p = Path(os.environ.get("BUDGET_HOME", "."))
+    p.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return p
+
+
+def _auth_path():
+    return home() / "auth.json"
+
+
+def _read():
+    try:
+        return json.loads(_auth_path().read_text())
+    except FileNotFoundError:
+        return None
+
+
+def _write(d):
+    fd = os.open(_auth_path(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(d, f)
 
 
 def _scrypt(pw, salt):
     return hashlib.scrypt(pw.encode(), salt=salt, n=2**15, r=8, p=1, maxmem=2**26, dklen=32)
 
 
-def set_passphrase(pw):
-    salt = os.urandom(16)
-    fd = os.open(AUTH_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump({"salt": salt.hex(), "hash": _scrypt(pw, salt).hex()}, f)
+def _totp(secret_b32, step):
+    mac = hmac.new(base64.b32decode(secret_b32), struct.pack(">Q", step), hashlib.sha1).digest()
+    o = mac[-1] & 15
+    return f"{(struct.unpack('>I', mac[o:o + 4])[0] & 0x7FFFFFFF) % 10**6:06d}"
 
 
-def check_passphrase(pw):
-    try:
-        with open(AUTH_FILE) as f:
-            d = json.load(f)
-    except FileNotFoundError:
-        return False  # fail closed until a passphrase is set
-    return hmac.compare_digest(_scrypt(pw, bytes.fromhex(d["salt"])).hex(), d["hash"])
+def setup(pw):
+    salt, secret = os.urandom(16), base64.b32encode(os.urandom(20)).decode()
+    _write({"salt": salt.hex(), "hash": _scrypt(pw, salt).hex(), "totp": secret,
+            "last_step": 0, "fails": 0, "locked_until": 0})
+    return secret
 
 
-def verify_header(auth):
-    h = hashlib.sha256(auth.encode()).hexdigest()
-    if h in _good:
-        return True
-    try:
-        user, _, pw = base64.b64decode(auth[6:]).decode().partition(":")
-    except Exception:
+def login(pw, code):
+    """Returns (session_token, None) or (None, message). Failure counts persist across restarts."""
+    d = _read()
+    if d is None:
+        return None, "Run python -m app.security first."
+    now = time.time()
+    if d["locked_until"] > now:
+        return None, "Too many attempts. Try again later."
+    step = int(now // 30)
+    ok_pw = hmac.compare_digest(_scrypt(pw, bytes.fromhex(d["salt"])).hex(), d["hash"])
+    used = next((s for s in (step - 1, step, step + 1)
+                 if s > d["last_step"] and hmac.compare_digest(_totp(d["totp"], s), code)), None)
+    if ok_pw and used:
+        d.update(fails=0, locked_until=0, last_step=used)  # last_step blocks code replay
+        _write(d)
+        token = secrets.token_urlsafe(32)
+        _sessions[token] = {"created": now, "seen": now}
+        return token, None
+    d["fails"] += 1
+    if d["fails"] >= 5:
+        d["locked_until"] = now + min(3600, 2 ** d["fails"])
+    _write(d)
+    return None, "Invalid credentials."
+
+
+def valid_session(token):
+    s, now = _sessions.get(token or ""), time.time()
+    if not s or now - s["seen"] > SESSION_IDLE or now - s["created"] > SESSION_MAX:
+        _sessions.pop(token or "", None)
         return False
-    ok = user == "budget" and check_passphrase(pw)
-    if ok:
-        _good.add(h)
-    return ok
+    s["seen"] = now
+    return True
 
 
-def locked(client):
-    return _fails.get(client, (0, 0))[1] > time.time()
-
-
-def record(client, ok):
-    if ok:
-        _fails.pop(client, None)
-        return
-    n = _fails.get(client, (0, 0))[0] + 1
-    _fails[client] = (n, time.time() + min(900, 2 ** n) if n >= 5 else 0)
+def logout(token):
+    _sessions.pop(token or "", None)
 
 
 def get_secret(name, fallback=""):
@@ -75,7 +110,7 @@ def get_secret(name, fallback=""):
 
 
 def token_key():
-    """Encryption key for stored access tokens. Created once and kept in the OS keychain."""
+    """Encryption key for stored access tokens. Created once and kept in the OS keychain (or TOKEN_KEY env)."""
     k = get_secret("TOKEN_KEY")
     if not k:
         import keyring
@@ -88,5 +123,6 @@ if __name__ == "__main__":
     a, b = getpass.getpass("New passphrase: "), getpass.getpass("Repeat: ")
     if a != b or len(a) < 12:
         sys.exit("Passphrases must match and be at least 12 characters.")
-    set_passphrase(a)
-    print("Saved. The login username is 'budget'.")
+    s = setup(a)
+    print(f"Saved to {_auth_path()}.\nAdd this key to an authenticator app (setup key, time-based):\n  {s}")
+    print(f"or open: otpauth://totp/Budget?secret={s}&issuer=Budget")

@@ -9,7 +9,8 @@ from .. import security
 from .base import Connector, RawAccount, RawTxn
 
 HOSTS = {"production": "https://production.plaid.com", "sandbox": "https://sandbox.plaid.com"}
-ITEMS_FILE = "plaid_items.enc"  # access tokens, encrypted at rest; the key lives in the OS keychain
+def _items_file():
+    return str(security.home() / "plaid_items.enc")  # access tokens, encrypted at rest
 
 
 def _fernet():
@@ -19,14 +20,14 @@ def _fernet():
 
 def _load():
     try:
-        with open(ITEMS_FILE, "rb") as f:
+        with open(_items_file(), "rb") as f:
             return json.loads(_fernet().decrypt(f.read()))
     except FileNotFoundError:
         return []
 
 
 def _save(items):
-    fd = os.open(ITEMS_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(_items_file(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(_fernet().encrypt(json.dumps(items).encode()))
 

@@ -1,7 +1,9 @@
 import datetime as dt
+from urllib.parse import quote, urlparse
 
-from fastapi import FastAPI
-from fastapi.responses import Response
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -9,24 +11,57 @@ from . import db, security, sync
 from .connectors.simplefin import SimpleFIN
 
 cfg = sync.load_config()
-conn = db.connect(cfg["app"]["db_path"])
+conn = db.connect(str(security.home() / cfg["app"]["db_path"]))
 app = FastAPI(title="Budget")
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg["app"].get("allowed_hosts", ["localhost"]))
+PUBLIC = {"/login.html", "/api/login"}
+
+
+def _err(status, msg):
+    return JSONResponse({"error": msg}, status_code=status)
 
 
 @app.middleware("http")
-async def gate(request, call_next):
-    """Everything needs the local passphrase; repeated failures lock out with growing delays."""
-    who = request.client.host if request.client else "?"
-    if security.locked(who):
-        return Response("Too many attempts. Try again later.", status_code=429)
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Basic ") and security.verify_header(auth):
-        security.record(who, True)
-        return await call_next(request)
-    if auth:
-        security.record(who, False)
-    return Response("Login required", status_code=401, headers={"WWW-Authenticate": 'Basic realm="Budget"'})
+async def gate(request: Request, call_next):
+    """Session login (passphrase + TOTP). Writes also need the X-Budget header and a same-host Origin."""
+    path = request.url.path
+    if path not in PUBLIC and not security.valid_session(request.cookies.get("session")):
+        if path.startswith("/api/"):
+            return _err(401, "login required")
+        nxt = path + ("?" + request.url.query if request.url.query else "")
+        return RedirectResponse("/login.html?next=" + quote(nxt, safe=""))
+    if request.method not in ("GET", "HEAD"):
+        origin = request.headers.get("origin")
+        if request.headers.get("x-budget") != "1" or (origin and urlparse(origin).hostname != request.url.hostname):
+            return _err(403, "blocked")
+    resp = await call_next(request)
+    resp.headers.update({"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"})
+    if path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+class Login(BaseModel):
+    password: str
+    code: str
+
+
+@app.post("/api/login")
+def do_login(b: Login):
+    token, err = security.login(b.password, b.code.strip())
+    if err:
+        return _err(401, err)
+    r = JSONResponse({"ok": True})
+    r.set_cookie("session", token, httponly=True, secure=True, samesite="lax", max_age=security.SESSION_MAX, path="/")
+    return r
+
+
+@app.post("/api/logout")
+def do_logout(request: Request):
+    security.logout(request.cookies.get("session"))
+    r = JSONResponse({"ok": True})
+    r.delete_cookie("session", path="/")
+    return r
 
 
 def _month(m):

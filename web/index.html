@@ -12,7 +12,7 @@ body{margin:0;min-height:100vh;display:grid;grid-template-columns:15rem 1fr;colo
 .side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:1.5rem;padding:1.5rem 1rem;background:rgba(0,0,0,.22);border-right:1px solid var(--line)}
 .logo{display:flex;align-items:center;gap:.8rem;font-size:1.2rem;font-weight:700}.logo i{width:1.5rem;height:1.5rem;transform:rotate(45deg);border-radius:5px;background:linear-gradient(135deg,#00bbf9,#9b5de5)}
 nav{display:flex;flex-direction:column;gap:.25rem}nav a{color:var(--mute);text-decoration:none;padding:.65rem .9rem;border-radius:10px}nav a:hover,nav a.on{background:rgba(155,93,229,.22);color:var(--ink)}
-#connect{background:linear-gradient(135deg,#9b5de5,#00bbf9);border:0;font-weight:600;color:#fff}#sync{margin-top:auto}
+#connect{background:linear-gradient(135deg,#9b5de5,#00bbf9);border:0;font-weight:600;color:#fff}#logout{margin-top:auto}
 main{padding:1.5rem 1.75rem 3rem;min-width:0}
 header{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between}.crumb{color:var(--mute)}
 input,select,button{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:.35rem .7rem}button{cursor:pointer}button:hover{border-color:var(--spent)}.mo{display:flex;gap:.4rem}
@@ -57,7 +57,7 @@ td.num{text-align:right;white-space:nowrap;font-weight:600}td.in{color:var(--ok)
 <aside class="side">
   <div class="logo"><i></i>Budget</div>
   <nav><a href="#overview" class="on">Overview</a><a href="#budgets">Budgets</a><a href="#transactions">Transactions</a></nav>
-  <button id="connect">Connect a bank</button><button id="sync">Sync now</button>
+  <button id="connect">Connect a bank</button><button id="logout">Log out</button><button id="sync">Sync now</button>
 </aside>
 <main>
   <header id="overview"><span class="crumb">Dashboard / Overview</span>
@@ -82,6 +82,13 @@ td.num{text-align:right;white-space:nowrap;font-weight:600}td.in{color:var(--ok)
   </section>
 </main>
 <script>
+const _fetch = window.fetch;
+window.fetch = async (u, o = {}) => {
+  if (o.method && o.method !== 'GET') o = {...o, headers: {...(o.headers || {}), 'X-Budget': '1'}};
+  const r = await _fetch(u, o);
+  if (r.status === 401) location.href = '/login.html';
+  return r;
+};
 const $ = s => document.querySelector(s);
 const usd = (c, d = 0) => (c / 100).toLocaleString(undefined, {style: 'currency', currency: 'USD', maximumFractionDigits: d, minimumFractionDigits: d});
 const pct = p => Math.round(p * 100) + '%';
@@ -227,6 +234,7 @@ function render() {
   stats(); donut(); budgets(); pace(); trend(); txns();
 }
 
+$('#logout').onclick = async () => { await fetch('/api/logout', {method: 'POST'}); location.href = '/login.html'; };
 $('#sync').onclick = async () => {
   $('#status').textContent = 'Syncing...';
   try { await fetch('/api/sync?force=true', {method: 'POST'}).then(r => r.json()); $('#status').textContent = ''; }
