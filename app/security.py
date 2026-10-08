@@ -104,8 +104,8 @@ def get_secret(name, fallback=""):
         v = keyring.get_password("budget", name)
         if v:
             return v
-    except Exception:
-        pass
+    except Exception as e:  # keyring missing or locked: say so (never the value) and fall back
+        print(f"warning: keychain lookup for {name} failed ({type(e).__name__}); using fallback", file=sys.stderr)
     return fallback
 
 
