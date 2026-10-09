@@ -34,7 +34,7 @@ DEFAULT_CATEGORIES = [
     ("Income", "income"), ("Transfer", "transfer"), ("Housing", "expense"),
     ("Groceries", "expense"), ("Dining", "expense"), ("Transport", "expense"),
     ("Utilities", "expense"), ("Shopping", "expense"), ("Health", "expense"),
-    ("Entertainment", "expense"), ("Other", "expense"),
+    ("Entertainment", "expense"), ("Travel", "expense"), ("Other", "expense"),
 ]
 
 

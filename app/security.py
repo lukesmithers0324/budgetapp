@@ -113,6 +113,8 @@ def token_key():
     """Encryption key for stored access tokens. Created once and kept in the OS keychain (or TOKEN_KEY env)."""
     k = get_secret("TOKEN_KEY")
     if not k:
+        if (home() / "plaid_items.enc").exists():  # never replace a key that may still decrypt saved tokens
+            raise RuntimeError("TOKEN_KEY not found but encrypted tokens exist; refusing to create a new key")
         import keyring
         k = base64.urlsafe_b64encode(os.urandom(32)).decode()
         keyring.set_password("budget", "TOKEN_KEY", k)

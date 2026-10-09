@@ -45,9 +45,9 @@ def run(conn, connector):
                                 t.description, int(t.pending), json.dumps(t.payload)))
             if cur.rowcount:
                 new += 1
-                conn.execute("""INSERT INTO transactions(raw_id, account_id, date, amount_cents, merchant, category_id)
-                    VALUES(?,?,?,?,?,?)""", (cur.lastrowid, acct, t.date, t.amount_cents, t.description,
-                                             rules.categorize(conn, t.description)))
+                cat, transfer = rules.categorize(conn, t.description, t.payload)
+                conn.execute("""INSERT INTO transactions(raw_id, account_id, date, amount_cents, merchant, category_id, is_transfer)
+                    VALUES(?,?,?,?,?,?,?)""", (cur.lastrowid, acct, t.date, t.amount_cents, t.description, cat, transfer))
         for tid in getattr(connector, "removed", []):  # e.g. pending rows that posted under a new ID
             conn.execute("DELETE FROM transactions WHERE raw_id IN (SELECT id FROM raw_transactions WHERE provider=? AND provider_txn_id=?)", (connector.name, tid))
             conn.execute("DELETE FROM raw_transactions WHERE provider=? AND provider_txn_id=?", (connector.name, tid))

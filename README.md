@@ -43,3 +43,8 @@ The Trial plan allows 10 connections and removing one does not free its slot, so
 - The server only answers to the host name `localhost` over HTTPS and locks out repeated bad logins.
 - The SQLite database is not encrypted by the app. Keep full-disk encryption (FileVault) on.
 - Check dependencies with `pip-audit -r requirements.txt`; Dependabot is configured for the public repo.
+
+## Tests and dependencies
+- Run the tests from the project folder: `python -m pytest -q` (install `pytest` first).
+- Pin dependencies with hashes: `pip install pip-tools`, then `pip-compile --generate-hashes requirements.in -o requirements.txt`, and install with `pip install --require-hashes -r requirements.txt`.
+- A Content-Security-Policy is sent in report-only mode. After checking that Plaid Link works with no policy errors in the browser console, set `csp = "enforce"` under `[app]` in config.toml.

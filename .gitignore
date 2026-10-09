@@ -6,3 +6,4 @@ plaid_items.json
 *.pem
 auth.json
 plaid_items.enc
+NOTES.private.md

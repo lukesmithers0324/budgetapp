@@ -46,14 +46,11 @@ Budget style (monthly cap per category), month start day (the 1st), category lis
 ## Security
 Never paste the SimpleFIN access URL or tokens into chat, issues, or logs.
 
-## Skeleton status
-Built: schema, SimpleFIN connector (first draft, verify against its developer guide), sync, basic rules, API, dashboard with percent rings, charts, filterable transactions, and per-category budgets.
-Not yet built: CSV import, pending-to-posted reconcile, transfer detection, rules UI, backups, tests.
 
 ## Stages
 **Stage 1: set up for two people**
 - Built: per-instance data folder (`BUDGET_HOME`), login with passphrase + TOTP, sessions, persistent lockout, CSRF header and Origin checks, security headers, encrypted tokens, keychain or env secrets.
-- Next: tests (auth, lockout, CSRF, token crypto, sync idempotency), pinned dependencies with hashes, CSP, automatic categories, rules screen.
+- Next: further hardening and data-quality work (tracked privately).
 - Deployment: one Linux host with an OS user, service, data folder, and port per person, bound to 127.0.0.1 and reachable only over a private network (Tailscale HTTPS). LUKS disk encryption, encrypted backups, and each instance's https address added to Plaid's allowed redirect URIs.
 
 **Stage 2: investments and redesign**
