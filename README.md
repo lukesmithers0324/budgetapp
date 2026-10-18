@@ -1,50 +1,70 @@
 # Budget dashboard
 
-A personal budgeting dashboard that runs on my own computer. It pulls my own bank transactions through Plaid Link (the Transactions product only), stores them in a local SQLite file, and shows spending, budgets, and trends on a localhost web page.
+A small budgeting dashboard for me and my partner. Each person runs their own isolated instance, with their own login, database, and bank connections. Bank data comes through Plaid Link (Transactions product only), is stored in a local SQLite file, and is shown on a private web page.
 
-- **Who uses it:** one person, for their own accounts. It is not a public service and has no other users.
-- **What it asks Plaid for:** transaction data only. It never moves money.
-- **Where data lives:** on the local machine only. Plaid access tokens are kept in a local file with owner-only permissions. Nothing is sent to analytics or to any third party other than Plaid.
-- **Secrets:** API keys and tokens are kept out of this repository (see `.gitignore`).
-- **Built with:** Python, FastAPI, SQLite, and plain HTML/JS. See `PLAN.md` for the design.
+- **Who uses it:** two people who know each other, each connecting only their own accounts through Plaid Link. It is not a public service.
+- **What it asks Plaid for:** transaction data only. It never moves money and never sees bank credentials.
+- **Where data lives:** on the machine running that person's instance, in a per-person data folder. Plaid access tokens are encrypted at rest. Nothing is sent to analytics or to any third party other than Plaid.
+- **Secrets:** API keys and tokens stay out of this repository (see `.gitignore`).
+- **Built with:** Python, FastAPI, SQLite, and plain HTML/JS. See `PLAN.md` for the design and `docs/DEPLOY.md` for hosting.
 
 ## Setup
 
-Python 3.11+. Runs on your machine only (127.0.0.1). See PLAN.md for the design.
+Python 3.11 or newer.
 
 ```
-python3 -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp config.example.toml config.toml && chmod 600 config.toml
-
-# one-time: exchange your SimpleFIN setup token for the access URL, paste it into config.toml
-python -c "from app.connectors.simplefin import claim; print(claim(input('setup token: ')))"
-
-uvicorn app.main:app --host 127.0.0.1 --port 8000   # open http://127.0.0.1:8000
-python -m app.sync                                  # manual or scheduled sync
+python3 -m venv .venv
+. .venv/bin/activate
+pip install --require-hashes -r requirements.txt
+cp config.example.toml config.toml
+chmod 600 config.toml
+python -m app.security
 ```
 
-Opening the dashboard syncs automatically if the last sync is over 12 hours old.
-The access URL is a secret: keep it only in config.toml, never in chat, issues, or logs.
+`python -m app.security` sets a passphrase (12+ characters) and prints a key for an authenticator app. Every login needs the passphrase plus the 6-digit code, and without it every request is refused.
 
-## Plaid setup (free Trial plan)
-1. Create a Plaid account, copy your client_id and production secret into the `[plaid]` section of config.toml.
-2. In the Plaid dashboard, add `https://localhost:8000/` under allowed redirect URIs (it must match config.toml exactly).
-3. Local HTTPS (needed for bank-login redirects): `brew install mkcert && mkcert -install && mkcert localhost`
-4. Run: `uvicorn app.main:app --host 127.0.0.1 --port 8000 --ssl-keyfile localhost-key.pem --ssl-certfile localhost.pem`
-5. Open https://localhost:8000 and click **Connect a bank**. Access tokens are saved in `plaid_items.json` (chmod 600, never share it).
-The Trial plan allows 10 connections and removing one does not free its slot, so avoid reconnecting the same bank repeatedly.
+## Plaid (free Trial plan)
+
+1. Create a Plaid account and copy your client ID and production secret.
+2. Store them in the OS keychain (or the `PLAID_CLIENT_ID` and `PLAID_SECRET` environment variables), not in config.toml:
+
+```
+python -c "import keyring, getpass; keyring.set_password('budget', 'PLAID_CLIENT_ID', getpass.getpass('Plaid client id: '))"
+python -c "import keyring, getpass; keyring.set_password('budget', 'PLAID_SECRET', getpass.getpass('Plaid production secret: '))"
+```
+
+3. In the Plaid dashboard, add `https://localhost:8000/` under allowed redirect URIs. It must match `redirect_uri` in config.toml exactly.
+4. Make a local HTTPS certificate (needed for bank-login redirects):
+
+```
+brew install mkcert
+mkcert -install
+mkcert localhost
+```
+
+5. Run the server and open https://localhost:8000:
+
+```
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --ssl-keyfile localhost-key.pem --ssl-certfile localhost.pem
+```
+
+Click **Connect a bank** once per bank. The Trial plan allows 10 connections in total, and removing one does not give the slot back. Restarting the server and **Sync now** reuse the saved tokens and do not create connections.
 
 ## Security notes
-- Set up your login once: `python -m app.security` (12+ character passphrase). It prints a key for an authenticator app, and every login needs the passphrase plus the 6-digit code. Without it every request is refused.
-- To run independent instances (one per person), give each its own `BUDGET_HOME` folder, port, passphrase, and token key. Each folder holds its own config, database, login, and encrypted tokens.
-- Plaid keys: put them in the environment (`PLAID_CLIENT_ID`, `PLAID_SECRET`) or the OS keychain (service `budget`) instead of config.toml. Config values are only a fallback.
-- Access tokens are encrypted at rest (`plaid_items.enc`); the key is created in the OS keychain.
-- The server only answers to the host name `localhost` over HTTPS and locks out repeated bad logins.
-- The SQLite database is not encrypted by the app. Keep full-disk encryption (FileVault) on.
-- Check dependencies with `pip-audit -r requirements.txt`; Dependabot is configured for the public repo.
+
+- Plaid access tokens are stored encrypted in `plaid_items.enc`. The key lives in the OS keychain or the `TOKEN_KEY` environment variable, and the app refuses to create a new key while encrypted tokens exist.
+- The app answers only to the hosts listed in `allowed_hosts` (default `localhost`), uses session cookies, checks the Origin and an `X-Budget` header on every write, and locks out repeated bad logins.
+- The SQLite database is not encrypted by the app, so run it on an encrypted disk.
+- A Content-Security-Policy is sent in report-only mode. After checking that Plaid Link works with no policy errors in the browser console, set `csp = "enforce"` under `[app]` in config.toml.
+- To run several independent instances, give each its own `BUDGET_HOME` folder, port, passphrase, and token key.
+- Encrypted backups: `python -m app.backup DEST_DIR` (needs `BACKUP_KEY`). Remove an instance's data: `python -m app.purge --yes`.
+
+## Optional: SimpleFIN connector
+
+If `access_url` is set in the `[simplefin]` section of config.toml, SimpleFIN transactions are synced too.
 
 ## Tests and dependencies
+
 - Run the tests from the project folder: `python -m pytest -q` (install `pytest` first).
-- Pin dependencies with hashes: `pip install pip-tools`, then `pip-compile --generate-hashes requirements.in -o requirements.txt`, and install with `pip install --require-hashes -r requirements.txt`.
-- A Content-Security-Policy is sent in report-only mode. After checking that Plaid Link works with no policy errors in the browser console, set `csp = "enforce"` under `[app]` in config.toml.
+- Pin dependencies with hashes: `pip install pip-tools`, then `pip-compile --generate-hashes requirements.in -o requirements.txt`.
+- Check for known vulnerabilities with `pip-audit -r requirements.txt`. Dependabot is configured for this repo.

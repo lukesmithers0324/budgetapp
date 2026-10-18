@@ -39,6 +39,10 @@ def run(conn, connector):
         new = 0
         for t in txns:
             acct = ids[t.provider_account_id]
+            pid = (t.payload or {}).get("pending_transaction_id")
+            if pid:  # the posted version replaces its pending twin
+                conn.execute("DELETE FROM transactions WHERE raw_id IN (SELECT id FROM raw_transactions WHERE provider=? AND provider_txn_id=?)", (connector.name, pid))
+                conn.execute("DELETE FROM raw_transactions WHERE provider=? AND provider_txn_id=?", (connector.name, pid))
             cur = conn.execute("""INSERT OR IGNORE INTO raw_transactions(account_id, provider, provider_txn_id,
                 posted_date, amount_cents, description, pending, payload) VALUES(?,?,?,?,?,?,?,?)""",
                                (acct, connector.name, t.provider_txn_id, t.date, t.amount_cents,

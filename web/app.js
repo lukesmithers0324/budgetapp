@@ -175,7 +175,11 @@ async function connectBank(resume) {
     Plaid.create(cfg).open();
   } catch (e) { $('#status').textContent = 'Could not start the bank connection. Check the [plaid] section of config.toml.'; }
 }
-$('#connect').onclick = () => connectBank(false);
+$('#connect').onclick = async () => {
+  const items = await fetch('/api/plaid/items').then(r => r.json()).catch(() => []);
+  const names = items.map(i => i.institution || 'a bank').join(', ');
+  if (confirm(`This creates a NEW Plaid connection. This copy has ${items.length} saved${names ? ' (' + names + ')' : ''}, and the free plan allows 10 in total; removing one does not give the slot back. Only continue for a bank you have not linked. Continue?`)) connectBank(false);
+};
 if (location.search.includes('oauth_state_id')) connectBank(true);
 
 let CATS = [];

@@ -1,0 +1,24 @@
+# One instance per person: systemctl enable --now budget@NAME  (user budget-NAME, data /srv/budget/NAME)
+[Unit]
+Description=Budget dashboard (%i)
+After=network-online.target
+
+[Service]
+User=budget-%i
+WorkingDirectory=/opt/budget
+Environment=BUDGET_HOME=/srv/budget/%i
+EnvironmentFile=/etc/budget/%i.env
+ExecStart=/opt/budget/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port ${PORT}
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/budget/%i
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

@@ -15,7 +15,8 @@ from .connectors.simplefin import SimpleFIN
 cfg = sync.load_config()
 conn = db.connect(str(security.home() / cfg["app"]["db_path"]))
 app = FastAPI(title="Budget")
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=cfg["app"].get("allowed_hosts", ["localhost"]))
+ALLOWED_HOSTS = cfg["app"].get("allowed_hosts", ["localhost"])
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 PUBLIC = {"/login.html", "/login.css", "/login.js", "/api/login"}
 _plaid_host = "https://sandbox.plaid.com" if cfg.get("plaid", {}).get("env") == "sandbox" else "https://production.plaid.com"
 CSP = ("default-src 'self'; script-src 'self' https://cdn.plaid.com/link/v2/stable/link-initialize.js; "
@@ -40,7 +41,7 @@ async def gate(request: Request, call_next):
         return RedirectResponse("/login.html?next=" + quote(nxt, safe=""))
     if request.method not in ("GET", "HEAD"):
         origin = request.headers.get("origin")
-        if request.headers.get("x-budget") != "1" or (origin and urlparse(origin).hostname != request.url.hostname):
+        if request.headers.get("x-budget") != "1" or (origin and urlparse(origin).hostname not in ALLOWED_HOSTS):
             return _err(403, "blocked")
     resp = await call_next(request)
     resp.headers.update({"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", CSP_HEADER: CSP})
@@ -153,12 +154,18 @@ def set_budget(b: Budget):
     return {"ok": True}
 
 
-from .connectors.plaid import Plaid  # noqa: E402
+from .connectors.plaid import Plaid, _load as _load_items  # noqa: E402
 
 
 class Exchange(BaseModel):
     public_token: str
     institution: str | None = None
+
+
+@app.get("/api/plaid/items")
+def plaid_items():
+    """How many connections this instance holds (names only, never tokens)."""
+    return [{"institution": i.get("institution", "")} for i in _load_items()]
 
 
 @app.get("/api/plaid/link-token")
@@ -185,16 +192,16 @@ class Recat(BaseModel):
 @app.post("/api/transactions/{tid}/category")
 def set_category(tid: int, b: Recat):
     """Manual choice wins forever (marked as edited). Optionally saves a rule and fills in similar rows."""
-    c = conn.execute("SELECT id FROM categories WHERE name=?", (b.category,)).fetchone()
+    c = conn.execute("SELECT id, kind FROM categories WHERE name=?", (b.category,)).fetchone()
     t = conn.execute("SELECT merchant, edited_fields FROM transactions WHERE id=?", (tid,)).fetchone()
     if not c or not t:
         raise HTTPException(404, "Not found")
-    conn.execute("UPDATE transactions SET category_id=?, edited_fields=? WHERE id=?", (c[0], (t["edited_fields"] or "") + ",category", tid))
+    conn.execute("UPDATE transactions SET category_id=?, is_transfer=?, edited_fields=? WHERE id=?", (c[0], int(c["kind"] == "transfer"), (t["edited_fields"] or "") + ",category", tid))
     also = 0
     if b.make_rule and t["merchant"]:
         pat = t["merchant"].strip().lower()
         conn.execute("INSERT INTO rules(priority, pattern, category_id) VALUES(10,?,?)", (pat, c[0]))
-        also = conn.execute("UPDATE transactions SET category_id=? WHERE category_id IS NULL AND instr(lower(merchant), ?)>0 AND edited_fields NOT LIKE '%category%'", (c[0], pat)).rowcount
+        also = conn.execute("UPDATE transactions SET category_id=?, is_transfer=? WHERE category_id IS NULL AND instr(lower(merchant), ?)>0 AND edited_fields NOT LIKE '%category%'", (c[0], int(c["kind"] == "transfer"), pat)).rowcount
     conn.commit()
     return {"ok": True, "also_updated": also}
 

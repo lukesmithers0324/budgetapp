@@ -106,3 +106,40 @@ def test_plaid_categories_map_and_user_rules_win(tmp_path):
     assert rules.categorize(conn, "x", {"personal_finance_category": {"primary": "TRANSFER_OUT"}})[1] == 1
     conn.execute("INSERT INTO rules(pattern, category_id) VALUES('trader', (SELECT id FROM categories WHERE name='Dining'))")
     assert name(rules.categorize(conn, "Trader Joe's", pfc)[0]) == "Dining"
+
+
+def test_backup_roundtrip_and_restore(env, tmp_path, monkeypatch):
+    from app import backup, db
+    monkeypatch.setenv("BACKUP_KEY", Fernet.generate_key().decode())
+    db.connect(str(tmp_path / "t.db")).close()
+    f = backup.create(tmp_path / "out")
+    assert b"SQLite format" not in f.read_bytes()
+    (tmp_path / "t.db").unlink()
+    backup.restore(f)
+    assert (tmp_path / "t.db").exists()
+
+
+def test_posted_transaction_replaces_pending_twin(tmp_path):
+    from app import db, sync
+    from app.connectors.base import Connector, RawAccount, RawTxn
+
+    class Fake(Connector):
+        name = "fake"
+
+        def __init__(self, txns):
+            self.t = txns
+
+        def fetch(self, since=None):
+            return [RawAccount("a", "Checking")], self.t, []
+
+    conn = db.connect(str(tmp_path / "s.db"))
+    sync.run(conn, Fake([RawTxn("a", "p1", "2026-10-01", -100000, "Hub Cincinnati Nrent", True, {})]))
+    sync.run(conn, Fake([RawTxn("a", "t1", "2026-10-02", -100000, "Hub Cincinnati NRent", False, {"pending_transaction_id": "p1"})]))
+    assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 1
+
+
+def test_rule_into_transfer_category_marks_transfer(tmp_path):
+    from app import db, rules
+    conn = db.connect(str(tmp_path / "x.db"))
+    conn.execute("INSERT INTO rules(pattern, category_id) VALUES('zelle', (SELECT id FROM categories WHERE name='Transfer'))")
+    assert rules.categorize(conn, "Zelle to Sam")[1] == 1

@@ -17,9 +17,9 @@ PFC_PRIMARY = {
 def categorize(conn, description, payload=None):
     """Returns (category_id or None, is_transfer). Your rules win; Plaid's category is the fallback."""
     text = (description or "").lower()
-    for r in conn.execute("SELECT pattern, category_id FROM rules ORDER BY priority, id"):
+    for r in conn.execute("SELECT r.pattern, r.category_id, c.kind FROM rules r JOIN categories c ON c.id=r.category_id ORDER BY r.priority, r.id"):
         if r["pattern"].lower() in text:
-            return r["category_id"], 0
+            return r["category_id"], int(r["kind"] == "transfer")
     pfc = (payload or {}).get("personal_finance_category") or {}
     name = PFC_DETAILED.get(pfc.get("detailed")) or PFC_PRIMARY.get(pfc.get("primary"))
     if name:

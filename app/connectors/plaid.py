@@ -58,7 +58,7 @@ class Plaid(Connector):
 
     def link_token(self):
         body = {"client_name": "Budget", "language": "en", "country_codes": ["US"],
-                "products": ["transactions"], "user": {"client_user_id": "local-user"}}
+                "products": ["transactions"], "user": {"client_user_id": self.cfg.get("user_id", "local-user")}}
         if self.cfg.get("redirect_uri"):
             body["redirect_uri"] = self.cfg["redirect_uri"]
         return self._post("/link/token/create", body)["link_token"]

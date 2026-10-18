@@ -2,6 +2,8 @@
 [app]
 db_path = "budget.db"
 sync_stale_hours = 12
+# allowed_hosts = ["localhost", "host.your-tailnet.ts.net"]  # add your private HTTPS name when hosted
+# csp = "enforce"  # after checking Plaid Link in the browser console
 
 [simplefin]
 access_url = ""  # secret: never paste this anywhere except this file
@@ -10,4 +12,5 @@ access_url = ""  # secret: never paste this anywhere except this file
 client_id = ""
 secret = ""        # secret: Plaid dashboard > API keys. Never paste it in chat
 env = "production" # the free Trial plan uses production
+# user_id = "person-1"  # unique, non-personal ID for each person using this Plaid account
 redirect_uri = "https://localhost:8000/"  # must be https and registered in the Plaid dashboard
