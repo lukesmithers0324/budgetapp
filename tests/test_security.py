@@ -143,3 +143,15 @@ def test_rule_into_transfer_category_marks_transfer(tmp_path):
     conn = db.connect(str(tmp_path / "x.db"))
     conn.execute("INSERT INTO rules(pattern, category_id) VALUES('zelle', (SELECT id FROM categories WHERE name='Transfer'))")
     assert rules.categorize(conn, "Zelle to Sam")[1] == 1
+
+
+def test_drop_accounts_and_dedupe_pending(tmp_path):
+    from app import db, items
+    conn = db.connect(str(tmp_path / "i.db"))
+    conn.execute("INSERT INTO accounts(id, provider, provider_account_id, name) VALUES(1,'plaid','a1','Checking'),(2,'plaid','a2','Checking')")
+    for rid, acct, pend, day in ((1, 1, 1, "2026-10-01"), (2, 1, 0, "2026-10-02"), (3, 2, 0, "2026-10-02")):
+        conn.execute("INSERT INTO raw_transactions(id, account_id, provider, provider_txn_id, posted_date, amount_cents, pending) VALUES(?,?,?,?,?,?,?)", (rid, acct, "plaid", f"t{rid}", day, -1000, pend))
+        conn.execute("INSERT INTO transactions(raw_id, account_id, date, amount_cents, merchant) VALUES(?,?,?,?,?)", (rid, acct, day, -1000, "x"))
+    assert items.dedupe_pending(conn) == 1
+    assert items.drop_accounts(conn, ["a2"]) == 1
+    assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 1
